@@ -1,0 +1,56 @@
+scan_interval_minutes: 60
+
+leagues:
+  - name: EPL
+    sport_id: 2
+    tag_ids: [82, 306]
+    season_slug_patterns:
+      - "english-premier-league-*"
+      - "epl-which-clubs-*"
+      - "2025-2026-epl-*"
+      - "will-any-of-the-big-six-epl-*"
+    relegated_count: 3
+    top_n_count: 4
+  - name: La Liga
+    sport_id: 3
+    tag_ids: [780]
+    season_slug_patterns: ["la-liga-*"]
+    relegated_count: 3
+    top_n_count: 4
+  - name: Bundesliga
+    sport_id: 7
+    tag_ids: [1494]
+    season_slug_patterns: ["bundesliga-*"]
+    relegated_count: 2
+    top_n_count: 4
+  - name: Serie A
+    sport_id: 12
+    tag_ids: [101962]
+    season_slug_patterns: ["serie-a-*"]
+    relegated_count: 3
+    top_n_count: 4
+  - name: Ligue 1
+    sport_id: 11
+    tag_ids: [102070]
+    season_slug_patterns: ["ligue-1-*"]
+    relegated_count: 2
+    top_n_count: 3
+  - name: UCL
+    sport_id: 13
+    tag_ids: [100977, 1234]
+    season_slug_patterns: ["uefa-champions-league-*"]
+    relegated_count: 0
+    top_n_count: 0
+  - name: UEL
+    sport_id: 36
+    tag_ids: [101787]
+    season_slug_patterns: ["europa-league-*", "uel-*"]
+    relegated_count: 0
+    top_n_count: 0
+
+thresholds:
+  min_violation_pct: 1.0
+  min_profit_cents: 0.5
+  min_directional_ratio: 2.0
+  min_liquidity_usd: 100.0
+  min_volume_usd: 50.0
