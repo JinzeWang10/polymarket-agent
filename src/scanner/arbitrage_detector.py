@@ -29,10 +29,6 @@ class ArbitrageDetector:
         return [o for o in opportunities if self._passes_thresholds(o)]
 
     # ── Constraint 1: Mutual Exclusion ──
-    # Two mutually exclusive outcomes cannot both be true.
-    # P(top4) + P(relegation) ≤ 100%
-    # P(winner) + P(second) ≤ 100%
-    # P(winner) + P(relegation) ≤ 100%
 
     def check_mutual_exclusion(self, bundle: TeamMarketBundle) -> list[ArbitrageOpportunity]:
         results: list[ArbitrageOpportunity] = []
@@ -49,6 +45,12 @@ class ArbitrageDetector:
             total = market_a.yes_price + market_b.yes_price
             if total > 1.0:
                 violation = (total - 1.0) * 100
+                # Token IDs: YES tokens for both markets (to check bids = sellable)
+                token_ids = []
+                if market_a.yes_token_id:
+                    token_ids.append(market_a.yes_token_id)
+                if market_b.yes_token_id:
+                    token_ids.append(market_b.yes_token_id)
                 results.append(
                     ArbitrageOpportunity(
                         constraint_type=ConstraintType.MUTUAL_EXCLUSION,
@@ -63,14 +65,13 @@ class ArbitrageDetector:
                         violation_pct=round(violation, 2),
                         confidence="high" if violation > 3 else "medium",
                         polymarket_urls=[market_a.polymarket_url, market_b.polymarket_url],
+                        token_ids=token_ids,
                         timestamp=_now_iso(),
                     )
                 )
         return results
 
     # ── Constraint 2: Subset ──
-    # P(winner) ≤ P(top4)
-    # P(winner) + P(second) ≤ P(top4)
 
     def check_subset_constraint(self, bundle: TeamMarketBundle) -> list[ArbitrageOpportunity]:
         results: list[ArbitrageOpportunity] = []
@@ -131,7 +132,6 @@ class ArbitrageDetector:
         return results
 
     # ── Constraint 3: Market Sum ──
-    # Sum of all winner_yes prices should ≈ 100%. Significant overround is noteworthy.
 
     def check_market_sum(
         self, bundles: dict[str, TeamMarketBundle], league: str
@@ -162,7 +162,7 @@ class ArbitrageDetector:
                         team=f"[All {field}]",
                         league=league,
                         description=(
-                            f"{label}: Σ yes_prices = {total * 100:.1f}% "
+                            f"{label}: \u03a3 yes_prices = {total * 100:.1f}% "
                             f"(overround = {overround:+.1f}%)"
                         ),
                         markets_involved=market_ids,
@@ -176,8 +176,6 @@ class ArbitrageDetector:
 
     # ── Constraint 4: No-Side Arbitrage ──
     # Buy NO on top4 + NO on relegation. If cost < 100¢, guaranteed profit.
-    # Because: team must either finish top4 OR get relegated OR be in between
-    # → at least one NO pays out 100¢.
 
     def check_no_side_arbitrage(self, bundle: TeamMarketBundle) -> list[ArbitrageOpportunity]:
         results: list[ArbitrageOpportunity] = []
@@ -192,15 +190,21 @@ class ArbitrageDetector:
         cost_cents = (top4.no_price + relegation.no_price) * 100
         if cost_cents < 100:
             profit = 100 - cost_cents
+            # Store NO token IDs for orderbook verification
+            token_ids = []
+            if top4.no_token_id:
+                token_ids.append(top4.no_token_id)
+            if relegation.no_token_id:
+                token_ids.append(relegation.no_token_id)
             results.append(
                 ArbitrageOpportunity(
                     constraint_type=ConstraintType.NO_SIDE_ARB,
                     team=bundle.team,
                     league=bundle.league,
                     description=(
-                        f"Buy NO top4 ({top4.no_price * 100:.1f}¢) + "
-                        f"NO relegation ({relegation.no_price * 100:.1f}¢) = "
-                        f"{cost_cents:.1f}¢ < 100¢ → {profit:.1f}¢ profit"
+                        f"Buy NO top4 ({top4.no_price * 100:.1f}\u00a2) + "
+                        f"NO relegation ({relegation.no_price * 100:.1f}\u00a2) = "
+                        f"{cost_cents:.1f}\u00a2 < 100\u00a2 \u2192 {profit:.1f}\u00a2 profit"
                     ),
                     markets_involved=[top4.market_id, relegation.market_id],
                     violation_pct=round(profit, 2),
@@ -208,14 +212,13 @@ class ArbitrageDetector:
                     profit_pct=round(profit / cost_cents * 100, 2) if cost_cents > 0 else 0,
                     confidence="high",
                     polymarket_urls=[top4.polymarket_url, relegation.polymarket_url],
+                    token_ids=token_ids,
                     timestamp=_now_iso(),
                 )
             )
         return results
 
     # ── Constraint 5: Directional Mispricing ──
-    # If relegation_yes is high but top4_no is very low, there's a contradiction:
-    # relegation implies NOT top4, so relegation_yes should ≤ top4_no (approximately).
 
     def check_directional_mispricing(
         self, bundle: TeamMarketBundle
@@ -231,6 +234,11 @@ class ArbitrageDetector:
 
         ratio = relegation.yes_price / top4.no_price if top4.no_price > 0 else 0
         if ratio >= self.thresholds.min_directional_ratio:
+            token_ids = []
+            if relegation.yes_token_id:
+                token_ids.append(relegation.yes_token_id)
+            if top4.no_token_id:
+                token_ids.append(top4.no_token_id)
             results.append(
                 ArbitrageOpportunity(
                     constraint_type=ConstraintType.DIRECTIONAL_MISPRICING,
@@ -238,13 +246,14 @@ class ArbitrageDetector:
                     league=bundle.league,
                     description=(
                         f"relegation_yes ({relegation.yes_price * 100:.1f}%) vs "
-                        f"top4_no ({top4.no_price * 100:.1f}%) → "
+                        f"top4_no ({top4.no_price * 100:.1f}%) \u2192 "
                         f"{ratio:.1f}x mispricing"
                     ),
                     markets_involved=[relegation.market_id, top4.market_id],
                     violation_pct=round(ratio, 2),
                     confidence="high" if ratio > 3 else "medium",
                     polymarket_urls=[relegation.polymarket_url, top4.polymarket_url],
+                    token_ids=token_ids,
                     timestamp=_now_iso(),
                 )
             )

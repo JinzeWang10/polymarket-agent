@@ -8,6 +8,7 @@ from src.models.opportunity import ArbitrageOpportunity
 from src.scanner.arbitrage_detector import ArbitrageDetector
 from src.scanner.market_classifier import MarketClassifier
 from src.scanner.market_fetcher import MarketFetcher
+from src.scanner.orderbook_verifier import OrderbookVerifier
 from src.scanner.team_resolver import TeamResolver
 
 log = structlog.get_logger()
@@ -25,6 +26,7 @@ class ScanPipeline:
         detector: ArbitrageDetector,
         alerter: FeishuAlerter,
         formatter: AlertFormatter,
+        verifier: OrderbookVerifier | None = None,
     ) -> None:
         self.fetcher = fetcher
         self.classifier = classifier
@@ -32,6 +34,7 @@ class ScanPipeline:
         self.detector = detector
         self.alerter = alerter
         self.formatter = formatter
+        self.verifier = verifier
         self._last_seen: dict[tuple[str, str, str], float] = {}
 
     def run(self) -> list[ArbitrageOpportunity]:
@@ -49,6 +52,13 @@ class ScanPipeline:
             opps = self.detector.detect_all(bundles, league_name)
             all_opps.extend(opps)
             log.info("detected opportunities", league=league_name, count=len(opps))
+
+        # Verify against orderbook
+        if self.verifier:
+            log.info("verifying against orderbook", count=len(all_opps))
+            all_opps = self.verifier.verify_all(all_opps)
+            executable = sum(1 for o in all_opps if o.orderbook and o.orderbook.executable)
+            log.info("orderbook verification complete", executable=executable, total=len(all_opps))
 
         new_opps = self._deduplicate(all_opps)
         log.info("scan complete", total=len(all_opps), new=len(new_opps))
