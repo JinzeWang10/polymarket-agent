@@ -14,6 +14,7 @@ def _make_market(
     no_price: float = 0.0,
     league: str = "EPL",
 ) -> ClassifiedMarket:
+    """Create a market with orderbook prices matching mid-prices (simulates enrichment)."""
     return ClassifiedMarket(
         market_id=f"m-{team}-{market_type.value}",
         event_id="ev1",
@@ -25,6 +26,13 @@ def _make_market(
         no_price=no_price,
         yes_token_id=f"tok-{team}-{market_type.value}-yes",
         no_token_id=f"tok-{team}-{market_type.value}-no",
+        # Simulate orderbook enrichment: set ask/bid equal to mid-price
+        yes_best_ask=yes_price if yes_price > 0 else None,
+        yes_best_bid=yes_price if yes_price > 0 else None,
+        no_best_ask=no_price if no_price > 0 else None,
+        no_best_bid=no_price if no_price > 0 else None,
+        yes_ask_depth=100.0 if yes_price > 0 else 0.0,
+        no_ask_depth=100.0 if no_price > 0 else 0.0,
     )
 
 

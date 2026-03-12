@@ -22,6 +22,7 @@ class ArbitrageThresholds(BaseModel):
     min_directional_ratio: float = 2.0
     min_liquidity_usd: float = 100.0
     min_volume_usd: float = 50.0
+    min_value_edge_pct: float = 1.0
 
 
 class Settings(BaseSettings):
@@ -31,6 +32,10 @@ class Settings(BaseSettings):
     thresholds: ArbitrageThresholds = ArbitrageThresholds()
     gamma_base_url: str = "https://gamma-api.polymarket.com"
     clob_base_url: str = "https://clob.polymarket.com"
+    football_tag_id: int = 100350
+    extra_football_slugs: list[str] = []
+    outlier_sport_tags: list[int] = [100350]
+    outlier_min_ref: float = 0.80
     log_level: str = "INFO"
     config_path: str = "config.yaml"
 
@@ -46,3 +51,11 @@ class Settings(BaseSettings):
                 self.leagues = [LeagueConfig(**lc) for lc in data["leagues"]]
             if "thresholds" in data:
                 self.thresholds = ArbitrageThresholds(**data["thresholds"])
+            if "football_tag_id" in data:
+                self.football_tag_id = data["football_tag_id"]
+            if "extra_football_slugs" in data:
+                self.extra_football_slugs = data["extra_football_slugs"]
+            if "outlier_sport_tags" in data:
+                self.outlier_sport_tags = data["outlier_sport_tags"]
+            if "outlier_min_ref" in data:
+                self.outlier_min_ref = data["outlier_min_ref"]

@@ -13,6 +13,7 @@ class MarketType(str, Enum):
     EUROPEAN_FOOTBALL = "european_football"
     POINTS_THRESHOLD = "points_threshold"
     UCL_WINNER = "ucl_winner"
+    MATCH_RESULT = "match_result"
     UNKNOWN = "unknown"
 
 

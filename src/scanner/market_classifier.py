@@ -44,6 +44,26 @@ MATCH_DAY_PATTERNS = [
     re.compile(r"round-\d+"),
 ]
 
+# Patterns for detecting match result (moneyline) markets
+_MATCH_RESULT_INCLUDE = [
+    re.compile(r"\bwin\b", re.I),
+    re.compile(r"\bbeat\b", re.I),
+    re.compile(r"\bdraw\b", re.I),
+    re.compile(r"\btie\b", re.I),
+]
+_MATCH_RESULT_EXCLUDE = [
+    re.compile(r"\bgoal", re.I),
+    re.compile(r"\bscore\b", re.I),
+    re.compile(r"\bover\b", re.I),
+    re.compile(r"\bunder\b", re.I),
+    re.compile(r"\bcorner", re.I),
+    re.compile(r"\bcard\b", re.I),
+    re.compile(r"\bpenalt", re.I),
+    re.compile(r"\bshot", re.I),
+    re.compile(r"\bpossession\b", re.I),
+    re.compile(r"\bassist", re.I),
+]
+
 
 class MarketClassifier:
     def detect_market_type(self, event_slug: str, market: RawMarket | None) -> MarketType:
@@ -105,6 +125,85 @@ class MarketClassifier:
                 return False
         return True
 
+    @staticmethod
+    def _is_match_result(question: str) -> bool:
+        q = question.lower()
+        if not any(p.search(q) for p in _MATCH_RESULT_INCLUDE):
+            return False
+        if any(p.search(q) for p in _MATCH_RESULT_EXCLUDE):
+            return False
+        return True
+
+    def classify_match_event(self, event: RawEvent, league: str) -> list[ClassifiedMarket]:
+        """Classify match-day events, only keeping moneyline (win/draw/lose) markets."""
+        if self.is_season_long_event(event):
+            return []
+        results: list[ClassifiedMarket] = []
+        for market in event.markets:
+            if not market.active or market.closed:
+                continue
+            if not self._is_match_result(market.question):
+                continue
+            team = self.extract_team_name(market)
+            yes_price, no_price = self.parse_prices(market.outcomes, market.outcome_prices)
+            yes_token, no_token = self.parse_token_ids(market.outcomes, market.clob_token_ids)
+            results.append(
+                ClassifiedMarket(
+                    market_id=market.id,
+                    event_id=event.id,
+                    event_slug=event.slug,
+                    league=league,
+                    team=team,
+                    market_type=MarketType.MATCH_RESULT,
+                    yes_price=yes_price,
+                    no_price=no_price,
+                    yes_token_id=yes_token,
+                    no_token_id=no_token,
+                    liquidity=market.liquidity,
+                    volume=market.volume,
+                    question=market.question,
+                    last_trade_price=market.last_trade_price,
+                    polymarket_url=f"https://polymarket.com/event/{event.slug}",
+                )
+            )
+        return results
+
+    def classify_any_event(self, event: RawEvent) -> list[ClassifiedMarket]:
+        """Classify all markets in an event without league/type filtering.
+
+        Used for broad outlier scanning across all football markets.
+        """
+        results: list[ClassifiedMarket] = []
+        for market in event.markets:
+            if not market.active or market.closed:
+                continue
+            if not market.clob_token_ids or not any(market.clob_token_ids):
+                continue
+            mtype = self.detect_market_type(event.slug, market)
+            team = self.extract_team_name(market)
+            yes_price, no_price = self.parse_prices(market.outcomes, market.outcome_prices)
+            yes_token, no_token = self.parse_token_ids(market.outcomes, market.clob_token_ids)
+            results.append(
+                ClassifiedMarket(
+                    market_id=market.id,
+                    event_id=event.id,
+                    event_slug=event.slug,
+                    league=event.slug,
+                    team=team,
+                    market_type=mtype if mtype != MarketType.UNKNOWN else MarketType.WINNER,
+                    yes_price=yes_price,
+                    no_price=no_price,
+                    yes_token_id=yes_token,
+                    no_token_id=no_token,
+                    liquidity=market.liquidity,
+                    volume=market.volume,
+                    question=market.question,
+                    last_trade_price=market.last_trade_price,
+                    polymarket_url=f"https://polymarket.com/event/{event.slug}",
+                )
+            )
+        return results
+
     def classify_event(self, event: RawEvent, league: str) -> list[ClassifiedMarket]:
         if not self.is_season_long_event(event):
             return []
@@ -133,6 +232,7 @@ class MarketClassifier:
                     liquidity=market.liquidity,
                     volume=market.volume,
                     question=market.question,
+                    last_trade_price=market.last_trade_price,
                     polymarket_url=f"https://polymarket.com/event/{event.slug}",
                 )
             )

@@ -34,6 +34,7 @@ class RawMarket(BaseModel):
     active: bool = True
     closed: bool = False
     group_item_title: str = Field(default="", alias="groupItemTitle")
+    last_trade_price: float = Field(default=0.0, alias="lastTradePrice")
 
     model_config = {"populate_by_name": True}
 
@@ -61,6 +62,7 @@ class ClassifiedMarket(BaseModel):
     league: str
     team: str
     market_type: MarketType
+    # Mid-prices from Gamma API (reference only)
     yes_price: float = 0.0
     no_price: float = 0.0
     yes_token_id: str = ""
@@ -69,3 +71,25 @@ class ClassifiedMarket(BaseModel):
     volume: float = 0.0
     question: str = ""
     polymarket_url: str = ""
+    last_trade_price: float = 0.0  # most recent trade price from Gamma API
+    # Orderbook prices (actual executable prices, filled by OrderbookEnricher)
+    yes_best_ask: float | None = None  # cheapest price to BUY yes
+    yes_best_bid: float | None = None  # highest price to SELL yes
+    no_best_ask: float | None = None  # cheapest price to BUY no
+    no_best_bid: float | None = None  # highest price to SELL no
+    yes_ask_depth: float = 0.0  # total shares on ask side
+    no_ask_depth: float = 0.0
+    yes_ask_levels: list[tuple[float, float]] = []  # [(price, size), ...]
+    no_ask_levels: list[tuple[float, float]] = []
+    yes_bid_depth: float = 0.0
+    no_bid_depth: float = 0.0
+    spread: float | None = None  # yes_best_ask - yes_best_bid
+
+    @property
+    def has_orderbook(self) -> bool:
+        return self.yes_best_ask is not None or self.no_best_ask is not None
+
+    @property
+    def has_liquidity(self) -> bool:
+        return (self.yes_ask_depth > 0 or self.yes_bid_depth > 0
+                or self.no_ask_depth > 0 or self.no_bid_depth > 0)

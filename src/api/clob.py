@@ -29,3 +29,14 @@ class ClobClient:
         resp = self.http.get(f"{self.base_url}/book", params={"token_id": token_id})
         resp.raise_for_status()
         return resp.json()
+
+    def get_price_history(
+        self, token_id: str, interval: str = "6h", fidelity: int = 1,
+    ) -> list[dict[str, float]]:
+        """Get price history for a token. Returns list of {t, p}."""
+        resp = self.http.get(
+            f"{self.base_url}/prices-history",
+            params={"market": token_id, "interval": interval, "fidelity": fidelity},
+        )
+        resp.raise_for_status()
+        return resp.json().get("history", [])

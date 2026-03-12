@@ -1,4 +1,61 @@
 scan_interval_minutes: 60
+football_tag_id: 100350
+
+# Broad outlier scan: Gamma bestAsk pre-filter + CLOB enrichment
+# Only scans sides with ref >= outlier_min_ref
+outlier_sport_tags: [100350, 279, 102779, 103990, 102123, 435]  # Soccer, UFC, NCAA CBB, NFL FA, WTA, F1
+outlier_min_ref: 0.80
+
+# Extra season-long events for broad outlier scanning (beyond configured leagues)
+extra_football_slugs:
+  # World Cup
+  - "2026-fifa-world-cup-which-countries-qualify"
+  - "2026-fifa-world-cup-winner-595"
+  # Domestic cups
+  - "carabao-cup-winner"
+  - "2025-2026-fa-cup-winner-215"
+  # Other leagues
+  - "sper-lig-2025-26-champion"
+  - "mls-cup-winner-2026"
+  # World Cup groups
+  - "fifa-world-cup-group-a-winner"
+  - "fifa-world-cup-group-b-winner"
+  - "fifa-world-cup-group-c-winner"
+  - "fifa-world-cup-group-d-winner"
+  - "fifa-world-cup-group-e-winner"
+  - "fifa-world-cup-group-f-winner"
+  - "fifa-world-cup-group-g-winner"
+  - "fifa-world-cup-group-h-winner"
+  - "fifa-world-cup-group-i-winner"
+  - "fifa-world-cup-group-j-winner"
+  - "fifa-world-cup-group-k-winner"
+  - "fifa-world-cup-group-l-winner"
+  # Top goalscorer
+  - "english-premier-league-top-goalscorer"
+  - "la-liga-top-goalscorer"
+  - "bundesliga-top-goalscorer"
+  - "ligue-1-top-goalscorer"
+  - "serie-a-top-goalscorer"
+  - "champions-league-top-scorer-655"
+  # Extra EPL markets
+  - "english-premier-league-3rd-place"
+  - "english-premier-league-last-place"
+  - "english-premier-league-most-assists"
+  - "english-premier-league-top-gk-clean-sheets"
+  # Individual awards & transfers
+  - "ballon-dor-winner-2026"
+  - "2025-2026-pfa-players-player-of-the-year-winner"
+  - "which-club-will-cristiano-ronaldo-play-for-next"
+  - "next-manchester-united-manager"
+  - "next-real-madrid-manager"
+  # UCL/UEL stats
+  - "uefa-champions-league-most-assists"
+  - "uefa-champions-league-most-goal-contributions"
+  - "uefa-europa-league-top-scorer"
+  - "uefa-europa-league-most-assists"
+  # MLS awards
+  - "mls-2026-golden-boot-winner"
+  - "mls-2026-most-valuable-player"
 
 leagues:
   - name: EPL
