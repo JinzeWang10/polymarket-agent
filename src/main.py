@@ -49,6 +49,7 @@ def create_scanner(settings: Settings) -> OutlierScanner:
     return OutlierScanner(
         gamma,
         clob,
+        tag_ids=settings.outlier_sport_tags or None,
         min_ref=settings.outlier_min_ref,
         on_signal=on_signal,
     )

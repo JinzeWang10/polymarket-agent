@@ -41,6 +41,7 @@ class OutlierScanner:
         gamma: GammaClient,
         clob: ClobClient,
         *,
+        tag_ids: list[int] | None = None,
         min_ref: float = 0.80,
         min_gap_pct: float = 0.03,
         min_gap_cents: float = 3.0,
@@ -51,6 +52,7 @@ class OutlierScanner:
     ) -> None:
         self.gamma = gamma
         self.clob = clob
+        self.tag_ids = tag_ids
         self.min_ref = min_ref
         self.min_gap_pct = min_gap_pct
         self.min_gap_cents = min_gap_cents
@@ -71,9 +73,14 @@ class OutlierScanner:
         """Run a full scan. Returns all signals found."""
         self._median_cache.clear()
 
-        raw_markets = self.gamma.get_all_active_markets(
-            max_workers=self.max_workers,
-        )
+        if self.tag_ids:
+            raw_markets = self.gamma.get_markets_by_tags(
+                self.tag_ids, max_workers=self.max_workers,
+            )
+        else:
+            raw_markets = self.gamma.get_all_active_markets(
+                max_workers=self.max_workers,
+            )
 
         yes_cands, no_cands = self._pre_filter(raw_markets)
 

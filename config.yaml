@@ -1,9 +1,9 @@
-scan_interval_minutes: 60
+scan_interval_minutes: 10
 football_tag_id: 100350
 
 # Broad outlier scan: Gamma bestAsk pre-filter + CLOB enrichment
 # Only scans sides with ref >= outlier_min_ref
-outlier_sport_tags: [100350, 279, 102779, 103990, 102123, 435]  # Soccer, UFC, NCAA CBB, NFL FA, WTA, F1
+outlier_sport_tags: [1]  # Sports (all sports ~22k markets)
 outlier_min_ref: 0.80
 
 # Extra season-long events for broad outlier scanning (beyond configured leagues)

@@ -6,7 +6,7 @@ REPO_URL="https://github.com/JinzeWang10/polymarket-agent.git"
 INSTALL_DIR="$HOME/polymarket-agent"
 SERVICE_NAME="polymarket-scanner"
 FEISHU_WEBHOOK="https://open.feishu.cn/open-apis/bot/v2/hook/3abab6ae-d8a1-4a0a-b4f9-46abbcbc7ab5"
-SCAN_INTERVAL=30  # 分钟
+SCAN_INTERVAL=10  # 分钟
 
 # ========== 安装系统依赖 ==========
 echo "[1/6] 安装系统依赖..."
