@@ -27,6 +27,7 @@ class ArbitrageThresholds(BaseModel):
 
 class Settings(BaseSettings):
     feishu_webhook_url: str = ""
+    penny_feishu_webhook_url: str = ""
     scan_interval_minutes: int = 60
     leagues: list[LeagueConfig] = []
     thresholds: ArbitrageThresholds = ArbitrageThresholds()
@@ -36,6 +37,13 @@ class Settings(BaseSettings):
     extra_football_slugs: list[str] = []
     outlier_sport_tags: list[int] = [100350]
     outlier_min_ref: float = 0.80
+    # Penny picking scanner
+    penny_scan_interval_seconds: int = 300
+    penny_min_ask_price: float = 0.95
+    penny_min_depth_usd: float = 50.0
+    penny_pre_filter_price: float = 0.85
+    penny_dedup_cooldown_seconds: int = 600
+    penny_scan_windows: list[dict] = []
     log_level: str = "INFO"
     config_path: str = "config.yaml"
 
@@ -59,3 +67,13 @@ class Settings(BaseSettings):
                 self.outlier_sport_tags = data["outlier_sport_tags"]
             if "outlier_min_ref" in data:
                 self.outlier_min_ref = data["outlier_min_ref"]
+            for key in (
+                "penny_scan_interval_seconds",
+                "penny_min_ask_price",
+                "penny_min_depth_usd",
+                "penny_pre_filter_price",
+                "penny_dedup_cooldown_seconds",
+                "penny_scan_windows",
+            ):
+                if key in data:
+                    setattr(self, key, data[key])

@@ -1,6 +1,17 @@
 scan_interval_minutes: 10
 football_tag_id: 100350
 
+# Penny picking scanner: buy 95-99¢ outcomes in late-game situations
+penny_scan_interval_seconds: 300
+penny_min_ask_price: 0.95
+penny_min_depth_usd: 50
+penny_pre_filter_price: 0.85
+penny_dedup_cooldown_seconds: 600
+penny_scan_windows:
+  - start_hour: 8
+    end_hour: 13
+    label: "NBA"
+
 # Broad outlier scan: Gamma bestAsk pre-filter + CLOB enrichment
 # Only scans sides with ref >= outlier_min_ref
 outlier_sport_tags: [1]  # Sports (all sports ~22k markets)

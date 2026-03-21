@@ -6,6 +6,7 @@ import httpx
 import structlog
 
 from src.models.opportunity import ArbitrageOpportunity
+from src.models.penny_signal import PennyPickingSignal
 
 log = structlog.get_logger()
 
@@ -34,6 +35,56 @@ class FeishuAlerter:
         except httpx.HTTPError as e:
             log.error("feishu webhook failed", error=str(e))
             return False
+
+    def send_penny_signal(self, signal: PennyPickingSignal) -> bool:
+        """Send a penny picking signal as a Feishu card."""
+        if not self.webhook_url:
+            return False
+
+        price_cents = int(signal.ask_price * 100)
+        if price_cents >= 99:
+            color = "green"
+        elif price_cents >= 97:
+            color = "yellow"
+        else:
+            color = "orange"
+
+        cost = signal.ask_depth * signal.ask_price
+        lines = [
+            f"**{signal.outcome}** @ {price_cents}¢ ask",
+            f"深度: {signal.ask_depth:,.0f} 股 (${cost:,.0f})",
+        ]
+        if signal.spread is not None and signal.best_bid is not None:
+            bid_cents = int(signal.best_bid * 100)
+            spread_cents = round(signal.spread * 100, 1)
+            lines.append(f"Spread: {price_cents}¢ / {bid_cents}¢ ({spread_cents}¢)")
+        lines.append(f"流动性: ${signal.liquidity:,.0f} | 成交量: ${signal.volume:,.0f}")
+
+        elements: list[dict[str, Any]] = [
+            {"tag": "markdown", "content": "\n".join(lines)},
+        ]
+        if signal.polymarket_url:
+            elements.append({
+                "tag": "action",
+                "actions": [{
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "查看盘口"},
+                    "url": signal.polymarket_url,
+                    "type": "primary",
+                }],
+            })
+
+        card = {
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": f"\U0001f4b0 Penny信号 [{price_cents}¢] {signal.game_title}",
+                },
+                "template": color,
+            },
+            "elements": elements,
+        }
+        return self.send_card(card)
 
     def send_outlier_signal(self, opp: ArbitrageOpportunity) -> bool:
         """Send a single outlier signal as a Feishu card."""
