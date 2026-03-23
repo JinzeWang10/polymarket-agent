@@ -22,9 +22,9 @@ log = structlog.get_logger()
 
 SignalCallback = Callable[[PennyPickingSignal], None]
 
-# Max hours until endDate — only keep markets ending within this window.
-# NBA game ~2.5h, so 5h captures all in-progress games while excluding upcoming ones.
-_LIVE_MAX_HOURS = 5
+# endDate on NBA game markets = tip-off time (not game end).
+# A live game has endDate in the past 0-4h (NBA game ~2.5h + buffer for OT/delays).
+_LIVE_STARTED_WITHIN_HOURS = 4
 
 
 def _now_iso() -> str:
@@ -129,7 +129,8 @@ class PennyPickingScanner:
     def _pre_filter(self, raw_markets: list[dict]) -> list[dict]:
         """Keep only live NBA markets with at least one high-price outcome."""
         now = datetime.now(timezone.utc)
-        live_cutoff = now + timedelta(hours=_LIVE_MAX_HOURS)
+        # endDate = tip-off time. A live game tipped off 0-4h ago.
+        tipoff_floor = now - timedelta(hours=_LIVE_STARTED_WITHIN_HOURS)
 
         candidates: list[dict] = []
         for m in raw_markets:
@@ -138,13 +139,13 @@ class PennyPickingScanner:
             if not slug.startswith("nba-"):
                 continue
 
-            # Only live markets: endDate must exist and be within the next 24h
+            # Only live markets: tipped off within the last 4 hours, not yet closed
             end_str = m.get("endDate") or m.get("endDateIso") or ""
             if not end_str:
                 continue
             try:
                 end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-                if end_dt < now or end_dt > live_cutoff:
+                if end_dt > now or end_dt < tipoff_floor:
                     continue
             except (ValueError, TypeError):
                 continue

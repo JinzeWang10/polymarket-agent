@@ -14,8 +14,8 @@ from src.scanner.penny_picking_scanner import (
 )
 
 
-# endDate 2 hours from now — within the 5h live window (game in progress)
-_LIVE_END = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+# endDate = tip-off time; 1 hour ago means game is in progress
+_LIVE_END = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -111,10 +111,10 @@ class TestPreFilter:
         candidates = scanner._pre_filter(raw)
         assert len(candidates) == 0
 
-    def test_pre_filter_non_live_skipped(self):
-        """Markets with endDate > 5h in the future are filtered out (not yet started)."""
-        far_end = (datetime.now(timezone.utc) + timedelta(hours=8)).isoformat()
-        raw = [_raw_market(end_date=far_end, prices='["0.92", "0.08"]')]
+    def test_pre_filter_future_enddate_skipped(self):
+        """endDate in the future means game hasn't started — skip."""
+        future_end = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        raw = [_raw_market(end_date=future_end, prices='["0.92", "0.08"]')]
         scanner = PennyPickingScanner(_mock_gamma(raw), _mock_clob(), max_workers=1)
         candidates = scanner._pre_filter(raw)
         assert len(candidates) == 0
@@ -122,6 +122,22 @@ class TestPreFilter:
     def test_pre_filter_no_enddate_skipped(self):
         """Markets without endDate are filtered out."""
         raw = [_raw_market(end_date="", prices='["0.92", "0.08"]')]
+        scanner = PennyPickingScanner(_mock_gamma(raw), _mock_clob(), max_workers=1)
+        candidates = scanner._pre_filter(raw)
+        assert len(candidates) == 0
+
+    def test_pre_filter_tipoff_1h_ago_kept(self):
+        """endDate 1h ago = game tipped off 1h ago, still live — keep."""
+        past_end = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        raw = [_raw_market(end_date=past_end, prices='["0.92", "0.08"]')]
+        scanner = PennyPickingScanner(_mock_gamma(raw), _mock_clob(), max_workers=1)
+        candidates = scanner._pre_filter(raw)
+        assert len(candidates) == 1
+
+    def test_pre_filter_tipoff_too_long_ago_skipped(self):
+        """endDate 6h ago = game long over — skip."""
+        old_end = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
+        raw = [_raw_market(end_date=old_end, prices='["0.92", "0.08"]')]
         scanner = PennyPickingScanner(_mock_gamma(raw), _mock_clob(), max_workers=1)
         candidates = scanner._pre_filter(raw)
         assert len(candidates) == 0
