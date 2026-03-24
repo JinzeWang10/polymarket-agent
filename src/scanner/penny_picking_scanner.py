@@ -55,9 +55,10 @@ class DeduplicationTracker:
         self._seen[key] = (now, signal.ask_depth)
         return True
 
-    def cleanup(self, active_slugs: set[str]) -> None:
-        """Remove entries for games that are no longer active."""
-        to_remove = [k for k in self._seen if k[0] not in active_slugs]
+    def cleanup(self) -> None:
+        """Remove entries that have expired past the cooldown period."""
+        now = time.monotonic()
+        to_remove = [k for k, (ts, _) in self._seen.items() if now - ts >= self.cooldown_seconds]
         for k in to_remove:
             del self._seen[k]
 
@@ -98,7 +99,6 @@ class PennyPickingScanner:
         )
 
         all_signals: list[PennyPickingSignal] = []
-        active_slugs: set[str] = set()
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             futures = {
@@ -116,13 +116,12 @@ class PennyPickingScanner:
                     )
                     continue
                 for sig in signals:
-                    active_slugs.add(sig.game_slug)
                     if self.dedup.should_alert(sig):
                         all_signals.append(sig)
                         if self.on_signal:
                             self.on_signal(sig)
 
-        self.dedup.cleanup(active_slugs)
+        self.dedup.cleanup()
         log.info("penny picking scan complete", signals=len(all_signals))
         return all_signals
 
