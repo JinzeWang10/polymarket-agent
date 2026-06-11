@@ -12,6 +12,33 @@ penny_scan_windows:
     end_hour: 13
     label: "NBA"
 
+# World Cup structural arbitrage scanner
+worldcup_enabled: true
+worldcup_scan_interval_minutes: 5
+worldcup_min_edge_cents: 1.0       # min locked profit per share (stage-chain)
+worldcup_min_sum_edge_cents: 5.0   # min locked profit per set (slot-sum, multi-leg)
+worldcup_min_depth_usd: 50
+worldcup_stages:
+  - {slug: world-cup-winner, slots: 1, level: 6, label: 夺冠}
+  - {slug: world-cup-nation-to-reach-final, slots: 2, level: 5, label: 进决赛}
+  - {slug: world-cup-nation-to-reach-semifinals, slots: 4, level: 4, label: 进四强}
+  - {slug: world-cup-nation-to-reach-quarterfinals, slots: 8, level: 3, label: 进八强}
+  - {slug: world-cup-nation-to-reach-round-of-16, slots: 16, level: 2, label: 进十六强}
+  - {slug: world-cup-team-to-advance-to-knockout-stages, slots: 32, level: 1, label: 小组出线}
+worldcup_group_slugs:
+  - world-cup-group-a-winner
+  - world-cup-group-b-winner
+  - world-cup-group-c-winner
+  - world-cup-group-d-winner
+  - world-cup-group-e-winner
+  - world-cup-group-f-winner
+  - world-cup-group-g-winner
+  - world-cup-group-h-winner
+  - world-cup-group-i-winner
+  - world-cup-group-j-winner
+  - world-cup-group-k-winner
+  - world-cup-group-l-winner
+
 # Broad outlier scan: Gamma bestAsk pre-filter + CLOB enrichment
 # Only scans sides with ref >= outlier_min_ref
 outlier_sport_tags: [1]  # Sports (all sports ~22k markets)

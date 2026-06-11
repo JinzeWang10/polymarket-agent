@@ -86,6 +86,50 @@ class FeishuAlerter:
         }
         return self.send_card(card)
 
+    def send_worldcup_signal(self, opp: ArbitrageOpportunity) -> bool:
+        """Send a World Cup structural arbitrage signal as a Feishu card."""
+        if not self.webhook_url:
+            return False
+
+        type_label = {
+            "subset_violation": "阶段链倒挂",
+            "market_sum": "名额求和",
+        }.get(opp.constraint_type.value, opp.constraint_type.value)
+
+        lines = [opp.description]
+        if opp.potential_profit_cents:
+            lines.append("")
+            lines.append(f"锁定利润: **{opp.potential_profit_cents:.1f}¢**")
+
+        elements: list[dict[str, Any]] = [
+            {"tag": "markdown", "content": "\n".join(lines)},
+        ]
+        if opp.polymarket_urls:
+            elements.append({
+                "tag": "action",
+                "actions": [
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": f"盘口 {i + 1}"},
+                        "url": url,
+                        "type": "primary",
+                    }
+                    for i, url in enumerate(opp.polymarket_urls[:2])
+                ],
+            })
+
+        card = {
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": f"🏆 世界杯套利 [{type_label}] {opp.team}",
+                },
+                "template": "red",
+            },
+            "elements": elements,
+        }
+        return self.send_card(card)
+
     def send_outlier_signal(self, opp: ArbitrageOpportunity) -> bool:
         """Send a single outlier signal as a Feishu card."""
         if not self.webhook_url:

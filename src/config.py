@@ -16,6 +16,13 @@ class LeagueConfig(BaseModel):
     top_n_count: int
 
 
+class WorldCupStage(BaseModel):
+    slug: str
+    slots: int
+    level: int  # higher = harder to reach (winner=6, advance to KO=1)
+    label: str = ""
+
+
 class ArbitrageThresholds(BaseModel):
     min_violation_pct: float = 1.0
     min_profit_cents: float = 0.5
@@ -44,6 +51,14 @@ class Settings(BaseSettings):
     penny_pre_filter_price: float = 0.85
     penny_dedup_cooldown_seconds: int = 600
     penny_scan_windows: list[dict] = []
+    # World Cup structural arbitrage scanner
+    worldcup_enabled: bool = False
+    worldcup_scan_interval_minutes: int = 5
+    worldcup_min_edge_cents: float = 1.0
+    worldcup_min_sum_edge_cents: float = 5.0
+    worldcup_min_depth_usd: float = 50.0
+    worldcup_stages: list[WorldCupStage] = []
+    worldcup_group_slugs: list[str] = []
     log_level: str = "INFO"
     config_path: str = "config.yaml"
 
@@ -74,6 +89,16 @@ class Settings(BaseSettings):
                 "penny_pre_filter_price",
                 "penny_dedup_cooldown_seconds",
                 "penny_scan_windows",
+                "worldcup_enabled",
+                "worldcup_scan_interval_minutes",
+                "worldcup_min_edge_cents",
+                "worldcup_min_sum_edge_cents",
+                "worldcup_min_depth_usd",
+                "worldcup_group_slugs",
             ):
                 if key in data:
                     setattr(self, key, data[key])
+            if "worldcup_stages" in data:
+                self.worldcup_stages = [
+                    WorldCupStage(**s) for s in data["worldcup_stages"]
+                ]

@@ -14,6 +14,7 @@ from src.api.gamma import GammaClient
 from src.config import Settings
 from src.models.opportunity import ArbitrageOpportunity
 from src.scanner.outlier_scanner import OutlierScanner
+from src.scanner.worldcup_scanner import WorldCupScanner
 from src.utils.logging import setup_logging
 
 log = structlog.get_logger()
@@ -55,11 +56,41 @@ def create_scanner(settings: Settings) -> OutlierScanner:
     )
 
 
+def create_worldcup_scanner(settings: Settings) -> WorldCupScanner | None:
+    if not settings.worldcup_enabled or not settings.worldcup_stages:
+        return None
+    http = httpx.Client(timeout=30)
+    gamma = GammaClient(settings.gamma_base_url, http)
+    clob = ClobClient(settings.clob_base_url, http)
+    feishu = FeishuAlerter(settings.feishu_webhook_url, http)
+
+    def on_signal(opp: ArbitrageOpportunity) -> None:
+        _print_signal(opp)
+        feishu.send_worldcup_signal(opp)
+
+    return WorldCupScanner(
+        gamma,
+        clob,
+        stages=settings.worldcup_stages,
+        group_slugs=settings.worldcup_group_slugs,
+        min_edge_cents=settings.worldcup_min_edge_cents,
+        min_sum_edge_cents=settings.worldcup_min_sum_edge_cents,
+        min_depth_usd=settings.worldcup_min_depth_usd,
+        on_signal=on_signal,
+    )
+
+
 def run_once(settings: Settings) -> None:
     scanner = create_scanner(settings)
     print("Scanning...")
     opps = scanner.scan()
     print(f"\nDone. {len(opps)} signal(s) found.")
+
+    wc_scanner = create_worldcup_scanner(settings)
+    if wc_scanner:
+        print("World Cup scan...")
+        wc_opps = wc_scanner.scan()
+        print(f"Done. {len(wc_opps)} World Cup signal(s) found.")
 
 
 def run_scheduler(settings: Settings) -> None:
@@ -81,6 +112,21 @@ def run_scheduler(settings: Settings) -> None:
         IntervalTrigger(minutes=settings.scan_interval_minutes),
         next_run_time=datetime.now(),
     )
+
+    wc_scanner = create_worldcup_scanner(settings)
+    if wc_scanner:
+        def wc_job() -> None:
+            try:
+                opps = wc_scanner.scan()
+                log.info("worldcup scheduled scan complete", signals=len(opps))
+            except Exception:
+                log.exception("worldcup scan failed")
+
+        scheduler.add_job(
+            wc_job,
+            IntervalTrigger(minutes=settings.worldcup_scan_interval_minutes),
+            next_run_time=datetime.now(),
+        )
 
     def shutdown(signum: int, frame: object) -> None:
         log.info("shutting down scheduler")

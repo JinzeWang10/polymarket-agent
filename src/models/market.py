@@ -35,6 +35,9 @@ class RawMarket(BaseModel):
     closed: bool = False
     group_item_title: str = Field(default="", alias="groupItemTitle")
     last_trade_price: float = Field(default=0.0, alias="lastTradePrice")
+    # Top-of-book snapshot from Gamma (may lag CLOB; verify before trading)
+    best_ask: float | None = Field(default=None, alias="bestAsk")
+    best_bid: float | None = Field(default=None, alias="bestBid")
 
     model_config = {"populate_by_name": True}
 
