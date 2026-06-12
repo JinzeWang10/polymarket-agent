@@ -111,6 +111,51 @@ class TestPreFilter:
         candidates = scanner._pre_filter(raw)
         assert len(candidates) == 0
 
+    def test_pre_filter_worldcup_moneyline_kept(self):
+        """fifwc moneyline slug kept and tagged WorldCup when window active."""
+        raw = [
+            _raw_market(slug="fifwc-mex-rsa-2026-06-11-mex", prices='["0.96", "0.04"]'),
+            _raw_market(slug="fifwc-mex-rsa-2026-06-11-draw", prices='["0.96", "0.04"]'),
+            _raw_market(slug="nba-nyk-bkn-2026-03-20", prices='["0.92", "0.08"]'),
+        ]
+        scanner = PennyPickingScanner(_mock_gamma(raw), _mock_clob(), max_workers=1)
+        candidates = scanner._pre_filter(raw, sports=["WorldCup"])
+        assert [c["slug"] for c in candidates] == [
+            "fifwc-mex-rsa-2026-06-11-mex",
+            "fifwc-mex-rsa-2026-06-11-draw",
+        ]
+        assert all(c["_sport"] == "WorldCup" for c in candidates)
+
+    def test_pre_filter_worldcup_sub_markets_excluded(self):
+        """Props rest at 95-99¢ legitimately — only the 1X2 moneyline counts."""
+        raw = [
+            _raw_market(slug="fifwc-ger-kor-2026-06-14-spread-home-1pt5", prices='["0.96", "0.04"]'),
+            _raw_market(slug="fifwc-ger-kor-2026-06-14-total-0pt5", prices='["0.99", "0.01"]'),
+            _raw_market(slug="fifwc-mex-rsa-2026-06-11-exact-score-1-0", prices='["0.96", "0.04"]'),
+            _raw_market(slug="fifwc-mex-rsa-2026-06-11-halftime-result-home", prices='["0.96", "0.04"]'),
+        ]
+        scanner = PennyPickingScanner(_mock_gamma(raw), _mock_clob(), max_workers=1)
+        assert scanner._pre_filter(raw, sports=["WorldCup", "NBA"]) == []
+
+    def test_pre_filter_both_sports_active(self):
+        raw = [
+            _raw_market(slug="fifwc-mex-rsa-2026-06-11-mex", prices='["0.96", "0.04"]'),
+            _raw_market(slug="nba-nyk-bkn-2026-03-20", prices='["0.92", "0.08"]'),
+        ]
+        scanner = PennyPickingScanner(_mock_gamma(raw), _mock_clob(), max_workers=1)
+        candidates = scanner._pre_filter(raw, sports=["NBA", "WorldCup"])
+        assert sorted(c["_sport"] for c in candidates) == ["NBA", "WorldCup"]
+
+    def test_pre_filter_default_is_nba_only(self):
+        """No sports arg → backward-compatible NBA-only behaviour."""
+        raw = [
+            _raw_market(slug="fifwc-mex-rsa-2026-06-11-mex", prices='["0.96", "0.04"]'),
+            _raw_market(slug="nba-nyk-bkn-2026-03-20", prices='["0.92", "0.08"]'),
+        ]
+        scanner = PennyPickingScanner(_mock_gamma(raw), _mock_clob(), max_workers=1)
+        candidates = scanner._pre_filter(raw)
+        assert [c["_sport"] for c in candidates] == ["NBA"]
+
     def test_pre_filter_future_enddate_skipped(self):
         """endDate in the future means game hasn't started — skip."""
         future_end = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
@@ -260,6 +305,35 @@ class TestScanWindow:
             mock_dt.now.return_value = fake_time
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
             assert is_scan_window(windows) is False
+
+    def test_active_sports(self):
+        from src.penny_main import active_sports
+        from unittest.mock import patch
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        windows = [
+            {"start_hour": 8, "end_hour": 13, "label": "NBA"},
+            {"start_hour": 0, "end_hour": 13, "label": "WorldCup"},
+        ]
+
+        # 03:00 Beijing → only World Cup window active
+        fake_time = datetime(2026, 6, 12, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch("src.penny_main.datetime") as mock_dt:
+            mock_dt.now.return_value = fake_time
+            assert active_sports(windows) == ["WorldCup"]
+
+        # 10:00 Beijing → both active
+        fake_time = datetime(2026, 6, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch("src.penny_main.datetime") as mock_dt:
+            mock_dt.now.return_value = fake_time
+            assert active_sports(windows) == ["NBA", "WorldCup"]
+
+        # 15:00 Beijing → none
+        fake_time = datetime(2026, 6, 12, 15, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch("src.penny_main.datetime") as mock_dt:
+            mock_dt.now.return_value = fake_time
+            assert active_sports(windows) == []
 
 
 # ---------------------------------------------------------------------------

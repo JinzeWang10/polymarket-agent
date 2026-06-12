@@ -11,6 +11,10 @@ penny_scan_windows:
   - start_hour: 8
     end_hour: 13
     label: "NBA"
+  # World Cup 2026 (USA/MEX/CAN): kickoffs ≈ 16:00-04:00 UTC → Beijing 00:00-12:00 + 加时缓冲
+  - start_hour: 0
+    end_hour: 13
+    label: "WorldCup"
 
 # World Cup structural arbitrage scanner
 worldcup_enabled: true

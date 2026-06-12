@@ -60,35 +60,48 @@ class GammaClient:
             return RawEvent.model_validate(page[0])
         return None
 
+    # Gamma /markets silently caps page size at 100 (it used to honor 500).
+    # Requesting more makes the short-page pagination check stop after the
+    # first page, so the page size must match the server cap exactly.
+    _MARKETS_PAGE_SIZE = 100
+
     def get_markets_by_tags(
         self,
         tag_ids: list[int],
         *,
-        limit: int = 500,
+        limit: int = _MARKETS_PAGE_SIZE,
         max_workers: int = 10,
+        end_date_min: str | None = None,
+        end_date_max: str | None = None,
     ) -> list[dict]:
         """Fetch all active markets for given tags with concurrent pagination.
 
         Returns raw JSON dicts (not RawMarket) so callers can access fields
         like bestAsk/bestBid that aren't in the RawMarket model.
+
+        end_date_min/end_date_max (ISO timestamps) filter server-side. Use
+        them whenever possible: Gamma rejects offsets beyond ~10k with 422,
+        so an unfiltered big tag silently misses markets past that point.
         """
         all_markets: dict[str, dict] = {}
 
         def _fetch_page(tag_id: int, offset: int) -> list[dict]:
-            resp = self.http.get(
-                f"{self.base_url}/markets",
-                params={
-                    "active": "true",
-                    "closed": "false",
-                    "tag_id": tag_id,
-                    "limit": limit,
-                    "offset": offset,
-                },
-            )
+            params: dict = {
+                "active": "true",
+                "closed": "false",
+                "tag_id": tag_id,
+                "limit": limit,
+                "offset": offset,
+            }
+            if end_date_min:
+                params["end_date_min"] = end_date_min
+            if end_date_max:
+                params["end_date_max"] = end_date_max
+            resp = self.http.get(f"{self.base_url}/markets", params=params)
             resp.raise_for_status()
             return resp.json()
 
-        # Phase 1: fetch first page of each tag to estimate total pages
+        # Phase 1: fetch first page of each tag
         first_pages: dict[int, list[dict]] = {}
         for tag_id in tag_ids:
             page = _fetch_page(tag_id, 0)
@@ -96,32 +109,33 @@ class GammaClient:
             for m in page:
                 all_markets[m["id"]] = m
 
-        # Phase 2: fire remaining pages concurrently
-        remaining: list[tuple[int, int]] = []
-        for tag_id, page in first_pages.items():
-            if len(page) < limit:
-                continue
-            # Estimate upper bound: assume up to 15000 markets per tag
-            for offset in range(limit, 15_000, limit):
-                remaining.append((tag_id, offset))
-
-        if remaining:
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = {
-                    pool.submit(_fetch_page, tid, off): (tid, off)
-                    for tid, off in remaining
-                }
-                for future in as_completed(futures):
-                    try:
-                        page = future.result()
-                    except Exception as e:
-                        tid, off = futures[future]
-                        log.debug("page fetch failed", tag_id=tid, offset=off, error=str(e))
-                        continue
-                    if not page:
-                        continue
-                    for m in page:
-                        all_markets[m["id"]] = m
+        # Phase 2: advance in concurrent batches, stop at the first short page
+        # (errors count as short — Gamma 422s on offsets beyond ~10k)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for tag_id, page in first_pages.items():
+                if len(page) < limit:
+                    continue
+                offset = limit
+                exhausted = False
+                while not exhausted:
+                    batch = [offset + i * limit for i in range(max_workers)]
+                    futures = {
+                        pool.submit(_fetch_page, tag_id, off): off for off in batch
+                    }
+                    for future in as_completed(futures):
+                        try:
+                            page = future.result()
+                        except Exception as e:
+                            log.debug(
+                                "page fetch failed",
+                                tag_id=tag_id, offset=futures[future], error=str(e),
+                            )
+                            page = []
+                        if len(page) < limit:
+                            exhausted = True
+                        for m in page:
+                            all_markets[m["id"]] = m
+                    offset += max_workers * limit
 
         log.info(
             "fetched markets by tags",
@@ -133,22 +147,26 @@ class GammaClient:
     def get_all_active_markets(
         self,
         *,
-        limit: int = 500,
+        limit: int = _MARKETS_PAGE_SIZE,
         max_workers: int = 10,
+        end_date_min: str | None = None,
+        end_date_max: str | None = None,
     ) -> list[dict]:
         """Fetch ALL active markets (no tag filter) with concurrent pagination."""
         all_markets: dict[str, dict] = {}
 
         def _fetch_page(offset: int) -> list[dict]:
-            resp = self.http.get(
-                f"{self.base_url}/markets",
-                params={
-                    "active": "true",
-                    "closed": "false",
-                    "limit": limit,
-                    "offset": offset,
-                },
-            )
+            params: dict = {
+                "active": "true",
+                "closed": "false",
+                "limit": limit,
+                "offset": offset,
+            }
+            if end_date_min:
+                params["end_date_min"] = end_date_min
+            if end_date_max:
+                params["end_date_max"] = end_date_max
+            resp = self.http.get(f"{self.base_url}/markets", params=params)
             resp.raise_for_status()
             return resp.json()
 
@@ -158,24 +176,27 @@ class GammaClient:
             all_markets[m["id"]] = m
 
         if len(first) >= limit:
-            # Phase 2: fire remaining pages concurrently (up to 40k)
-            remaining = list(range(limit, 40_000, limit))
+            # Phase 2: advance in concurrent batches, stop at first short page
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = {
-                    pool.submit(_fetch_page, off): off
-                    for off in remaining
-                }
-                for future in as_completed(futures):
-                    try:
-                        page = future.result()
-                    except Exception as e:
-                        off = futures[future]
-                        log.debug("page fetch failed", offset=off, error=str(e))
-                        continue
-                    if not page:
-                        continue
-                    for m in page:
-                        all_markets[m["id"]] = m
+                offset = limit
+                exhausted = False
+                while not exhausted:
+                    batch = [offset + i * limit for i in range(max_workers)]
+                    futures = {pool.submit(_fetch_page, off): off for off in batch}
+                    for future in as_completed(futures):
+                        try:
+                            page = future.result()
+                        except Exception as e:
+                            log.debug(
+                                "page fetch failed",
+                                offset=futures[future], error=str(e),
+                            )
+                            page = []
+                        if len(page) < limit:
+                            exhausted = True
+                        for m in page:
+                            all_markets[m["id"]] = m
+                    offset += max_workers * limit
 
         log.info("fetched all active markets", total=len(all_markets))
         return list(all_markets.values())

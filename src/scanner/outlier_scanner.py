@@ -73,13 +73,20 @@ class OutlierScanner:
         """Run a full scan. Returns all signals found."""
         self._median_cache.clear()
 
+        # _pre_filter drops markets ending within min_end_days anyway;
+        # filtering server-side keeps big tags under Gamma's ~10k offset cap.
+        end_min = (
+            datetime.now(timezone.utc) + timedelta(days=self.min_end_days)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         if self.tag_ids:
             raw_markets = self.gamma.get_markets_by_tags(
                 self.tag_ids, max_workers=self.max_workers,
+                end_date_min=end_min,
             )
         else:
             raw_markets = self.gamma.get_all_active_markets(
-                max_workers=self.max_workers,
+                max_workers=self.max_workers, end_date_min=end_min,
             )
 
         yes_cands, no_cands = self._pre_filter(raw_markets)

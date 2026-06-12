@@ -1,12 +1,13 @@
-"""Penny picking scanner: detect 95-99¢ buy opportunities in live NBA games.
+"""Penny picking scanner: detect 95-99¢ buy opportunities in live games.
 
-Scans live NBA match markets on Polymarket for outcomes priced at 95-99¢ on the
-CLOB orderbook, indicating near-certain results in late-game situations.
-Emits signals through a callback for alerting.
+Scans live match markets on Polymarket (NBA moneylines, World Cup 1X2) for
+outcomes priced at 95-99¢ on the CLOB orderbook, indicating near-certain
+results in late-game situations. Emits signals through a callback for alerting.
 """
 from __future__ import annotations
 
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -22,9 +23,23 @@ log = structlog.get_logger()
 
 SignalCallback = Callable[[PennyPickingSignal], None]
 
-# endDate on NBA game markets = tip-off time (not game end).
-# A live game has endDate in the past 0-4h (NBA game ~2.5h + buffer for OT/delays).
+# endDate on game markets = tip-off/kickoff time (not game end).
+# A live game has endDate in the past 0-4h (game ~2.5h + buffer for OT/delays).
 _LIVE_STARTED_WITHIN_HOURS = 4
+
+# World Cup moneyline market slug: fifwc-<a>-<b>-YYYY-MM-DD-<abbr|draw>.
+# Exactly one short segment after the date — sub-markets (spread-home-1pt5,
+# total-0pt5, exact-score-0-0, halftime-result-home) carry longer suffixes
+# and must NOT be penny-scanned: props rest at 95-99¢ even pre-match.
+_WC_MONEYLINE_RE = re.compile(
+    r"^fifwc-[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}-[a-z]{2,4}$"
+)
+
+# Window label → does this market slug belong to that sport's moneylines?
+SPORT_SLUG_FILTERS: dict[str, Callable[[str], bool]] = {
+    "NBA": lambda slug: slug.startswith("nba-"),
+    "WorldCup": lambda slug: bool(_WC_MONEYLINE_RE.match(slug)),
+}
 
 
 def _now_iso() -> str:
@@ -87,15 +102,25 @@ class PennyPickingScanner:
         self.on_signal = on_signal
         self.dedup = DeduplicationTracker(cooldown_seconds=dedup_cooldown_seconds)
 
-    def scan(self) -> list[PennyPickingSignal]:
-        """Run a full scan cycle. Returns all signals found."""
-        raw_markets = self.gamma.get_markets_by_tags([1], max_workers=self.max_workers)
-        candidates = self._pre_filter(raw_markets)
+    def scan(self, sports: list[str] | None = None) -> list[PennyPickingSignal]:
+        """Run a full scan cycle for the given sports. Returns all signals found."""
+        # Server-side endDate window = games that started 0-4h ago. Besides
+        # being faster, this dodges Gamma's ~10k offset cap on big tags.
+        now = datetime.now(timezone.utc)
+        raw_markets = self.gamma.get_markets_by_tags(
+            [1],
+            max_workers=self.max_workers,
+            end_date_min=(now - timedelta(hours=_LIVE_STARTED_WITHIN_HOURS))
+            .strftime("%Y-%m-%dT%H:%M:%SZ"),
+            end_date_max=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        candidates = self._pre_filter(raw_markets, sports)
 
         log.info(
             "penny picking scan start",
             total_markets=len(raw_markets),
             candidates=len(candidates),
+            sports=sports or ["NBA"],
         )
 
         all_signals: list[PennyPickingSignal] = []
@@ -125,17 +150,26 @@ class PennyPickingScanner:
         log.info("penny picking scan complete", signals=len(all_signals))
         return all_signals
 
-    def _pre_filter(self, raw_markets: list[dict]) -> list[dict]:
-        """Keep only live NBA markets with at least one high-price outcome."""
+    def _pre_filter(
+        self, raw_markets: list[dict], sports: list[str] | None = None,
+    ) -> list[dict]:
+        """Keep only live moneyline markets with a high-price outcome."""
         now = datetime.now(timezone.utc)
         # endDate = tip-off time. A live game tipped off 0-4h ago.
         tipoff_floor = now - timedelta(hours=_LIVE_STARTED_WITHIN_HOURS)
+
+        filters = {
+            label: SPORT_SLUG_FILTERS[label]
+            for label in (sports or ["NBA"])
+            if label in SPORT_SLUG_FILTERS
+        }
 
         candidates: list[dict] = []
         for m in raw_markets:
             slug = (m.get("slug") or "").lower()
 
-            if not slug.startswith("nba-"):
+            sport = next((s for s, f in filters.items() if f(slug)), None)
+            if sport is None:
                 continue
 
             # Only live markets: tipped off within the last 4 hours, not yet closed
@@ -165,7 +199,7 @@ class PennyPickingScanner:
                 "_outcomes": outcomes,
                 "_prices": [float(p) for p in prices],
                 "_tokens": tokens,
-                "_sport": "NBA",
+                "_sport": sport,
             })
         return candidates
 

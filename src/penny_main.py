@@ -30,13 +30,17 @@ def is_scan_window(windows: list[dict]) -> bool:
     """Check if current Beijing time is within any configured scan window."""
     if not windows:
         return True  # no windows configured → always scan
-    now_bjt = datetime.now(ZoneInfo("Asia/Shanghai"))
-    hour = now_bjt.hour
-    for w in windows:
-        start, end = w["start_hour"], w["end_hour"]
-        if start <= hour < end:
-            return True
-    return False
+    return bool(active_sports(windows))
+
+
+def active_sports(windows: list[dict]) -> list[str]:
+    """Window labels whose Beijing-time range contains the current hour."""
+    hour = datetime.now(ZoneInfo("Asia/Shanghai")).hour
+    labels = [
+        w["label"] for w in windows
+        if w["start_hour"] <= hour < w["end_hour"]
+    ]
+    return list(dict.fromkeys(labels))
 
 
 def _print_signal(sig: PennyPickingSignal) -> None:
@@ -75,8 +79,12 @@ def create_scanner(settings: Settings) -> PennyPickingScanner:
 
 def run_once(settings: Settings) -> None:
     scanner = create_scanner(settings)
-    print("Scanning for penny picking signals...")
-    signals = scanner.scan()
+    # --once ignores time windows: scan every configured sport
+    sports = list(dict.fromkeys(
+        w["label"] for w in settings.penny_scan_windows
+    )) or None
+    print(f"Scanning for penny picking signals ({sports or ['NBA']})...")
+    signals = scanner.scan(sports=sports)
     print(f"\nDone. {len(signals)} signal(s) found.")
 
 
@@ -89,12 +97,14 @@ def run_scheduler(settings: Settings) -> None:
     interval_sec = settings.penny_scan_interval_seconds
 
     def job() -> None:
-        if not is_scan_window(settings.penny_scan_windows):
+        windows = settings.penny_scan_windows
+        sports = active_sports(windows) if windows else None
+        if windows and not sports:
             log.debug("outside scan window, skipping")
             return
         try:
-            signals = scanner.scan()
-            log.info("penny scan complete", signals=len(signals))
+            signals = scanner.scan(sports=sports)
+            log.info("penny scan complete", signals=len(signals), sports=sports)
         except Exception:
             log.exception("penny scan failed")
 
