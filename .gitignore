@@ -27,3 +27,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Test artifacts
+.coverage
+htmlcov/
+
+# Claude Code local settings
+.claude/
