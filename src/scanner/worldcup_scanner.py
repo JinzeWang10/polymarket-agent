@@ -18,6 +18,7 @@ candidates are verified against real CLOB orderbooks before alerting.
 """
 from __future__ import annotations
 
+import statistics
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -100,6 +101,87 @@ class BookTop:
     depth_usd: float  # price * size at the best ask level
 
 
+def _resolved_yes(m: RawMarket) -> bool:
+    try:
+        return bool(m.outcome_prices) and float(m.outcome_prices[0]) > 0.5
+    except (ValueError, TypeError):
+        return False
+
+
+def _parse_event(
+    event: RawEvent, slug: str, level: int, label: str, slots: int,
+) -> EventLegs:
+    legs: list[Leg] = []
+    yes_resolved = 0
+    for m in event.markets:
+        if m.closed or not m.active:
+            if m.closed and _resolved_yes(m):
+                yes_resolved += 1
+            continue
+        if len(m.clob_token_ids) < 2:
+            continue
+        legs.append(Leg(
+            nation=_canonical(m.group_item_title or m.question[:40]),
+            level=level,
+            label=label,
+            event_slug=slug,
+            market_id=m.id,
+            question=m.question,
+            yes_token=m.clob_token_ids[0],
+            no_token=m.clob_token_ids[1],
+            yes_ask=m.best_ask,
+            yes_bid=m.best_bid,
+        ))
+    return EventLegs(
+        slug=slug,
+        title=event.title or slug,
+        label=label,
+        slots=slots,
+        legs=legs,
+        yes_resolved=yes_resolved,
+    )
+
+
+def fetch_worldcup_events(
+    gamma: GammaClient,
+    stages: list[WorldCupStage],
+    group_slugs: list[str],
+    max_workers: int = 10,
+) -> tuple[list[EventLegs], list[EventLegs]]:
+    """Fetch + parse all World Cup stage and group events by slug."""
+    stage_by_slug = {s.slug: s for s in stages}
+    all_slugs = list(stage_by_slug) + list(group_slugs)
+
+    raw: dict[str, RawEvent] = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(gamma.get_event_by_slug, slug): slug for slug in all_slugs
+        }
+        for future in as_completed(futures):
+            slug = futures[future]
+            try:
+                event = future.result()
+            except Exception as e:
+                log.warning("worldcup event fetch failed", slug=slug, error=str(e))
+                continue
+            if event is not None:
+                raw[slug] = event
+
+    stage_events: list[EventLegs] = []
+    for slug, cfg in stage_by_slug.items():
+        if slug in raw:
+            stage_events.append(_parse_event(
+                raw[slug], slug, cfg.level, cfg.label or slug, cfg.slots,
+            ))
+    group_events: list[EventLegs] = []
+    for slug in group_slugs:
+        if slug in raw:
+            group_events.append(_parse_event(
+                raw[slug], slug, GROUP_LEVEL, "小组头名", slots=1,
+            ))
+    return stage_events, group_events
+
+
 class WorldCupScanner:
     """Fetch stage/group events → Gamma screen → CLOB verify → signals."""
 
@@ -113,6 +195,11 @@ class WorldCupScanner:
         min_edge_cents: float = 1.0,
         min_sum_edge_cents: float = 5.0,
         min_depth_usd: float = 50.0,
+        value_enabled: bool = True,
+        value_min_mid: float = 0.02,
+        value_ratio_low: float = 0.4,
+        value_ratio_high: float = 2.5,
+        value_min_edge_cents: float = 3.0,
         max_workers: int = 10,
         on_signal: SignalCallback | None = None,
     ) -> None:
@@ -123,6 +210,11 @@ class WorldCupScanner:
         self.min_edge_cents = min_edge_cents
         self.min_sum_edge_cents = min_sum_edge_cents
         self.min_depth_usd = min_depth_usd
+        self.value_enabled = value_enabled
+        self.value_min_mid = value_min_mid
+        self.value_ratio_low = value_ratio_low
+        self.value_ratio_high = value_ratio_high
+        self.value_min_edge_cents = value_min_edge_cents
         self.max_workers = max_workers
         self.on_signal = on_signal
 
@@ -156,6 +248,8 @@ class WorldCupScanner:
         opps.extend(self._scan_chains(nations))
         for ev in stage_events + group_events:
             opps.extend(self._scan_sums(ev))
+        if self.value_enabled:
+            opps.extend(self._scan_value(nations))
 
         new_opps = self._deduplicate(opps)
         log.info(
@@ -174,78 +268,9 @@ class WorldCupScanner:
     # ------------------------------------------------------------------
 
     def _fetch_events(self) -> tuple[list[EventLegs], list[EventLegs]]:
-        stage_by_slug = {s.slug: s for s in self.stages}
-        all_slugs = list(stage_by_slug) + list(self.group_slugs)
-
-        raw: dict[str, RawEvent] = {}
-        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-            futures = {
-                pool.submit(self.gamma.get_event_by_slug, slug): slug
-                for slug in all_slugs
-            }
-            for future in as_completed(futures):
-                slug = futures[future]
-                try:
-                    event = future.result()
-                except Exception as e:
-                    log.warning("worldcup event fetch failed", slug=slug, error=str(e))
-                    continue
-                if event is not None:
-                    raw[slug] = event
-
-        stage_events: list[EventLegs] = []
-        for slug, cfg in stage_by_slug.items():
-            if slug in raw:
-                stage_events.append(self._parse_event(
-                    raw[slug], slug, cfg.level, cfg.label or slug, cfg.slots,
-                ))
-        group_events: list[EventLegs] = []
-        for slug in self.group_slugs:
-            if slug in raw:
-                group_events.append(self._parse_event(
-                    raw[slug], slug, GROUP_LEVEL, "小组头名", slots=1,
-                ))
-        return stage_events, group_events
-
-    def _parse_event(
-        self, event: RawEvent, slug: str, level: int, label: str, slots: int,
-    ) -> EventLegs:
-        legs: list[Leg] = []
-        yes_resolved = 0
-        for m in event.markets:
-            if m.closed or not m.active:
-                if m.closed and self._resolved_yes(m):
-                    yes_resolved += 1
-                continue
-            if len(m.clob_token_ids) < 2:
-                continue
-            legs.append(Leg(
-                nation=_canonical(m.group_item_title or m.question[:40]),
-                level=level,
-                label=label,
-                event_slug=slug,
-                market_id=m.id,
-                question=m.question,
-                yes_token=m.clob_token_ids[0],
-                no_token=m.clob_token_ids[1],
-                yes_ask=m.best_ask,
-                yes_bid=m.best_bid,
-            ))
-        return EventLegs(
-            slug=slug,
-            title=event.title or slug,
-            label=label,
-            slots=slots,
-            legs=legs,
-            yes_resolved=yes_resolved,
+        return fetch_worldcup_events(
+            self.gamma, self.stages, self.group_slugs, self.max_workers,
         )
-
-    @staticmethod
-    def _resolved_yes(m: RawMarket) -> bool:
-        try:
-            return bool(m.outcome_prices) and float(m.outcome_prices[0]) > 0.5
-        except (ValueError, TypeError):
-            return False
 
     # ------------------------------------------------------------------
     # Stage-chain detection
@@ -391,6 +416,104 @@ class WorldCupScanner:
             confidence="high",
             polymarket_urls=[f"https://polymarket.com/event/{ev.slug}"],
             token_ids=tokens,
+            timestamp=_now_iso(),
+        )
+
+    # ------------------------------------------------------------------
+    # Soft-chain value detection (+EV, not risk-free)
+    # ------------------------------------------------------------------
+
+    _VALUE_MIN_PEERS = 8  # need enough nations for a meaningful peer median
+
+    def _scan_value(
+        self, nations: dict[str, dict[int, Leg]],
+    ) -> list[ArbitrageOpportunity]:
+        """Cross-sectional anomaly in conditional stage ratios.
+
+        For adjacent stages, mid(harder)/mid(easier) is the market-implied
+        conditional probability of advancing. A nation whose ratio is far
+        from the peer median has one leg mispriced relative to the field.
+        """
+        opps: list[ArbitrageOpportunity] = []
+        seen_buy_markets: set[str] = set()
+        levels = [s.level for s in self.stages]  # ascending
+
+        for easy_lv, hard_lv in zip(levels, levels[1:]):
+            rows: list[tuple[Leg, Leg, float, float, float]] = []
+            for legs in nations.values():
+                easy, hard = legs.get(easy_lv), legs.get(hard_lv)
+                if easy is None or hard is None:
+                    continue
+                mid_e = self._mid(easy)
+                mid_h = self._mid(hard)
+                if mid_e is None or mid_h is None:
+                    continue
+                if mid_e < self.value_min_mid or mid_h < 0.005:
+                    continue
+                rows.append((easy, hard, mid_e, mid_h, mid_h / mid_e))
+
+            if len(rows) < self._VALUE_MIN_PEERS:
+                continue
+            med = statistics.median(r for *_, r in rows)
+            if med <= 0:
+                continue
+
+            for easy, hard, mid_e, mid_h, ratio in rows:
+                if ratio < med * self.value_ratio_low:
+                    # harder stage suspiciously cheap vs peers
+                    opp = self._verify_value(
+                        buy=hard, ref=easy, fair=mid_e * med, med=med,
+                    )
+                elif ratio > med * self.value_ratio_high:
+                    # easier stage suspiciously cheap vs peers
+                    opp = self._verify_value(
+                        buy=easy, ref=hard, fair=mid_h / med, med=med,
+                    )
+                else:
+                    continue
+                if opp and opp.markets_involved[0] not in seen_buy_markets:
+                    seen_buy_markets.add(opp.markets_involved[0])
+                    opps.append(opp)
+
+        return opps
+
+    @staticmethod
+    def _mid(leg: Leg) -> float | None:
+        if leg.yes_ask is None or leg.yes_bid is None:
+            return None
+        return (leg.yes_ask + leg.yes_bid) / 2.0
+
+    def _verify_value(
+        self, buy: Leg, ref: Leg, fair: float, med: float,
+    ) -> ArbitrageOpportunity | None:
+        """Confirm the cheap leg is actually buyable below peer-implied fair."""
+        top = self._get_book_top(buy.yes_token)
+        if top is None:
+            return None
+        edge_cents = round((fair - top.ask) * 100, 2)
+        if edge_cents < self.value_min_edge_cents:
+            return None
+        if top.depth_usd < self.min_depth_usd:
+            return None
+
+        ref_mid = self._mid(ref)
+        desc = (
+            f"{buy.nation} 价值偏离: [{buy.label}] ask {top.ask * 100:.1f}¢, "
+            f"但按同梯队条件概率中位 {med:.2f} 推算公允 ~{fair * 100:.1f}¢ "
+            f"(参照 [{ref.label}] mid {ref_mid * 100:.1f}¢) "
+            f"→ 期望边际 {edge_cents:.1f}¢/股 (非锁定)"
+        )
+        return ArbitrageOpportunity(
+            constraint_type=ConstraintType.VALUE_MISPRICING,
+            team=buy.nation,
+            league=LEAGUE,
+            description=desc,
+            markets_involved=[buy.market_id, ref.market_id],
+            violation_pct=edge_cents,
+            potential_profit_cents=edge_cents,
+            confidence="low",
+            polymarket_urls=list(dict.fromkeys([buy.url, ref.url])),
+            token_ids=[buy.yes_token],
             timestamp=_now_iso(),
         )
 

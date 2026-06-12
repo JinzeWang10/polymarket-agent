@@ -215,6 +215,92 @@ class TestSlotSum:
         assert scanner.scan() == []
 
 
+class TestValueDetection:
+    """Soft-chain value detection: cross-sectional stage-ratio anomalies."""
+
+    def _universe(self, anomaly: bool) -> dict[str, RawEvent]:
+        """10 nations with winner/final ratio 0.5; optional cheap-winner outlier.
+
+        Prices are crafted so neither chain nor slot-sum screens trigger:
+        winner asks sum to ~0.96 (>= slots 1 - 5¢ edge) and final asks to
+        ~1.98 (>= slots 2 - 5¢ edge).
+        """
+        winner_markets = [
+            _market(f"win-n{i}", f"Nation{i}", ask=0.10, bid=0.08)
+            for i in range(10)
+        ]
+        final_markets = [
+            _market(f"fin-n{i}", f"Nation{i}", ask=0.20, bid=0.18)
+            for i in range(10)
+        ]
+        if anomaly:
+            # ratio 0.01/0.19 ≈ 0.05 << median 0.474 × ratio_low(0.4) ≈ 0.19
+            winner_markets.append(
+                _market("win-anom", "Anomaly", ask=0.012, bid=0.008))
+            final_markets.append(
+                _market("fin-anom", "Anomaly", ask=0.20, bid=0.18))
+        return {
+            "wc-winner": _event("wc-winner", "World Cup Winner", winner_markets),
+            "wc-final": _event("wc-final", "Reach Final", final_markets),
+        }
+
+    def test_cheap_harder_leg_flagged(self):
+        clob = _mock_clob({
+            "yes-win-anom": [{"price": "0.012", "size": "5000"}],  # $60 depth
+        })
+        scanner = _scanner(_mock_gamma(self._universe(anomaly=True)), clob)
+        opps = scanner.scan()
+
+        assert len(opps) == 1
+        opp = opps[0]
+        assert opp.constraint_type == ConstraintType.VALUE_MISPRICING
+        assert opp.team == "Anomaly"
+        assert opp.token_ids == ["yes-win-anom"]
+        assert opp.confidence == "low"
+        # fair = final mid 0.19 × median ratio (0.09/0.19) = 9¢; ask 1.2¢ → 7.8¢
+        assert opp.potential_profit_cents == 7.8
+
+    def test_uniform_ratios_no_signal(self):
+        clob = _mock_clob()
+        scanner = _scanner(_mock_gamma(self._universe(anomaly=False)), clob)
+        assert scanner.scan() == []
+        clob.get_order_book.assert_not_called()
+
+    def test_value_disabled(self):
+        clob = _mock_clob({
+            "yes-win-anom": [{"price": "0.012", "size": "5000"}],
+        })
+        scanner = WorldCupScanner(
+            _mock_gamma(self._universe(anomaly=True)), clob,
+            stages=[WINNER, FINAL], group_slugs=[],
+            value_enabled=False, max_workers=1,
+        )
+        assert scanner.scan() == []
+
+    def test_thin_depth_rejected(self):
+        clob = _mock_clob({
+            "yes-win-anom": [{"price": "0.012", "size": "100"}],  # $1.2 depth
+        })
+        scanner = _scanner(_mock_gamma(self._universe(anomaly=True)), clob)
+        assert scanner.scan() == []
+
+    def test_too_few_peers_no_signal(self):
+        """Fewer than 8 nations with both legs → no median, no signals."""
+        events = {
+            "wc-winner": _event("wc-winner", "World Cup Winner", [
+                _market(f"win-n{i}", f"Nation{i}", ask=0.24, bid=0.22)
+                for i in range(4)
+            ] + [_market("win-anom", "Anomaly", ask=0.012, bid=0.008)]),
+            "wc-final": _event("wc-final", "Reach Final", [
+                _market(f"fin-n{i}", f"Nation{i}", ask=0.48, bid=0.46)
+                for i in range(4)
+            ] + [_market("fin-anom", "Anomaly", ask=0.48, bid=0.46)]),
+        }
+        clob = _mock_clob()
+        scanner = _scanner(_mock_gamma(events), clob)
+        assert scanner.scan() == []
+
+
 class TestParsing:
     def test_closed_markets_excluded_from_legs(self):
         events = _consistent_universe()

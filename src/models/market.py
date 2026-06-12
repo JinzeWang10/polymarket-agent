@@ -54,6 +54,8 @@ class RawEvent(BaseModel):
     markets: list[RawMarket] = []
     active: bool = True
     closed: bool = False
+    # For match events, endDate = kickoff time (not match end)
+    end_date: str = Field(default="", alias="endDate")
 
     model_config = {"populate_by_name": True}
 

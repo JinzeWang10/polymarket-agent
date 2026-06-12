@@ -59,6 +59,17 @@ class Settings(BaseSettings):
     worldcup_min_depth_usd: float = 50.0
     worldcup_stages: list[WorldCupStage] = []
     worldcup_group_slugs: list[str] = []
+    worldcup_value_enabled: bool = True
+    worldcup_value_min_mid: float = 0.02
+    worldcup_value_ratio_low: float = 0.4
+    worldcup_value_ratio_high: float = 2.5
+    worldcup_value_min_edge_cents: float = 3.0
+    worldcup_live_lag_enabled: bool = True
+    worldcup_live_interval_seconds: int = 60
+    worldcup_lag_window_minutes: int = 10
+    worldcup_lag_match_move_cents: float = 5.0
+    worldcup_lag_struct_move_cents: float = 1.5
+    worldcup_lag_cooldown_seconds: int = 900
     log_level: str = "INFO"
     config_path: str = "config.yaml"
 
@@ -95,6 +106,17 @@ class Settings(BaseSettings):
                 "worldcup_min_sum_edge_cents",
                 "worldcup_min_depth_usd",
                 "worldcup_group_slugs",
+                "worldcup_value_enabled",
+                "worldcup_value_min_mid",
+                "worldcup_value_ratio_low",
+                "worldcup_value_ratio_high",
+                "worldcup_value_min_edge_cents",
+                "worldcup_live_lag_enabled",
+                "worldcup_live_interval_seconds",
+                "worldcup_lag_window_minutes",
+                "worldcup_lag_match_move_cents",
+                "worldcup_lag_struct_move_cents",
+                "worldcup_lag_cooldown_seconds",
             ):
                 if key in data:
                     setattr(self, key, data[key])

@@ -18,6 +18,19 @@ worldcup_scan_interval_minutes: 5
 worldcup_min_edge_cents: 1.0       # min locked profit per share (stage-chain)
 worldcup_min_sum_edge_cents: 5.0   # min locked profit per set (slot-sum, multi-leg)
 worldcup_min_depth_usd: 50
+# Soft-chain value detection (+EV, not risk-free): cross-sectional stage-ratio anomalies
+worldcup_value_enabled: true
+worldcup_value_min_mid: 0.02
+worldcup_value_ratio_low: 0.4    # flag if conditional ratio < 0.4x peer median
+worldcup_value_ratio_high: 2.5   # flag if conditional ratio > 2.5x peer median
+worldcup_value_min_edge_cents: 3.0
+# Live lag scanner (+EV): in-play match moves vs stale structural markets
+worldcup_live_lag_enabled: true
+worldcup_live_interval_seconds: 60
+worldcup_lag_window_minutes: 10
+worldcup_lag_match_move_cents: 5.0
+worldcup_lag_struct_move_cents: 1.5
+worldcup_lag_cooldown_seconds: 900
 worldcup_stages:
   - {slug: world-cup-winner, slots: 1, level: 6, label: 夺冠}
   - {slug: world-cup-nation-to-reach-final, slots: 2, level: 5, label: 进决赛}

@@ -94,12 +94,19 @@ class FeishuAlerter:
         type_label = {
             "subset_violation": "阶段链倒挂",
             "market_sum": "名额求和",
+            "value_mispricing": "价值偏离",
+            "live_lag": "滚球滞后",
         }.get(opp.constraint_type.value, opp.constraint_type.value)
+
+        # Risk-free structural arbs are red; +EV signals orange/yellow
+        color = _CONFIDENCE_COLOR.get(opp.confidence, "orange") \
+            if opp.confidence != "high" else "red"
 
         lines = [opp.description]
         if opp.potential_profit_cents:
+            profit_label = "锁定利润" if opp.confidence == "high" else "期望边际"
             lines.append("")
-            lines.append(f"锁定利润: **{opp.potential_profit_cents:.1f}¢**")
+            lines.append(f"{profit_label}: **{opp.potential_profit_cents:.1f}¢**")
 
         elements: list[dict[str, Any]] = [
             {"tag": "markdown", "content": "\n".join(lines)},
@@ -124,7 +131,7 @@ class FeishuAlerter:
                     "tag": "plain_text",
                     "content": f"🏆 世界杯套利 [{type_label}] {opp.team}",
                 },
-                "template": "red",
+                "template": color,
             },
             "elements": elements,
         }

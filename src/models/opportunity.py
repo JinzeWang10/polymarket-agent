@@ -14,6 +14,7 @@ class ConstraintType(str, Enum):
     VALUE_MISPRICING = "value_mispricing"
     PENNY_OPPORTUNITY = "penny_opportunity"
     OUTLIER_ORDER = "outlier_order"
+    LIVE_LAG = "live_lag"
 
 
 class OutlierDetail(BaseModel):
